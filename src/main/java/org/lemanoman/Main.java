@@ -11,66 +11,27 @@ public class Main {
         MD5, SHA256
     }
 
-    public static HashResult splitFile(File file, HashType hashType, final long fragments, final long maxPartSize) {
-        List<byte[]> parts = new ArrayList<>((int) fragments);
-        long size = file.length();
-
-        long portion = size/fragments;
-        System.out.println("Portion: " + portion);
-        long part = portion;
-        if(portion>=maxPartSize){
-            System.out.println("Portion is greater than 1mb");
-            portion = maxPartSize;
-        }
-        try (RandomAccessFile raf = new RandomAccessFile(file, "r");){
-
-            for(int i=0;i<fragments;i++){
-                final byte[] partBytes = readPartial(raf,i*part,portion);
-                parts.add(partBytes);
-            }
-            raf.close();
-            System.out.println("Parts: " + parts.size());
-            long totalPartSize = 0;
-            for(byte[] partBytes:parts){
-                totalPartSize+=partBytes.length;
-            }
-            byte[] finalBytes = new byte[(int)totalPartSize];
-            for (int i = 0; i < parts.size(); i++) {
-                byte[] partBytes = parts.get(i);
-                //HashUtil.getSHA256Hash(partBytes);
-                System.arraycopy(partBytes, 0, finalBytes, i * partBytes.length, partBytes.length);
-            }
-            long start = System.currentTimeMillis();
-            String hash = "";
-            if(hashType==HashType.MD5){
-                hash = HashUtil.getMD5Hash(finalBytes);
-            } else {
-                hash = HashUtil.getSHA256Hash(finalBytes);
-            }
-            //final String md5 = HashUtil.getMD5Hash(finalBytes);
-            return new HashResult(file, hash, hashType.toString(), finalBytes.length, System.currentTimeMillis()-start);
-        } catch (FileNotFoundException e) {
-            throw new RuntimeException(e);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
 
 
-    }
-
-    public static List<File> fastScan(File baseDir){
+    public static List<File> fastScan(ScanRequest... request) {
         List<File> dups = new ArrayList<>();
         Map<String, List<HashResult>> results = new HashMap<>();
         //File largeOne = new File("D:\\youtube_dl", "686eaf2de430e2645ecda52def477810540b1caa07c84081d230193bbb4f40ab.mp4" );
         long files = 0;
         long totalTimeTaken = 0;
         double totalSizeScanned = 0;
-        for (File file : baseDir.listFiles()) {
+        List<File> allFiles = new ArrayList<>();
+        for(ScanRequest req:request){
+            if(req.recursive()){
+                allFiles.addAll(FileUtils.listFiles(req.file()));
+            }
+        }
+        for (File file : allFiles) {
             if(file.isDirectory()){
                 continue;
             }
             files++;
-            var result = splitFile(file, HashType.MD5, 4, 1024);
+            var result = HashUtil.getPartialHash(file, HashType.MD5, 4, 1024);
             totalTimeTaken+=result.timeTaken();
             totalSizeScanned+=result.size();
             System.out.println(file.getName()+": " +result);
@@ -93,13 +54,15 @@ public class Main {
             }
             boolean isFirst = true;
             for (HashResult hashResult : entry.getValue()) {
+                System.out.print("\t "+hashResult.file() + " - " + SizeUtil.humanReadableByteCount(hashResult.file().length()));
                 if(isFirst){
                     isFirst = false;
+                    System.out.print(" (Original) \n");
                     continue;
                 }
                 dups.add(hashResult.file());
                 sizeCanBeSaved+=hashResult.file().length();
-                System.out.println("\t "+hashResult.file() + " - " + SizeUtil.humanReadableByteCount(hashResult.file().length()));
+                System.out.print(" (Duplicado)\n");
             }
         }
         System.out.println("Files: " + files);
@@ -116,17 +79,23 @@ public class Main {
         // fastScan(new File("D:\\hash-tests"));
         // fastScan(new File("D:\\youtube_dl"));
         // fastScan(new File("D:\\temp"));
-        fastScan(new File("D:\\Downloads"));
+        fastScan(
+                new ScanRequest( new File("E:\\Downloads"), false),
+                new ScanRequest( new File("E:\\WinFiles\\mp4"), true),
+                new ScanRequest( new File("D:\\youtube_dl"), true),
+                new ScanRequest( new File("D:\\data\\mp4"), true),
+                new ScanRequest( new File("D:\\Nova pasta"), true),
+                new ScanRequest( new File("E:\\hitomi-all"), true),
+                new ScanRequest( new File("E:\\mnt"), true),
+                new ScanRequest( new File("D:\\Hitomi\\hitomi_downloader_GUI"), true)
+
+        );
+
 
     }
 
 
-    public static byte[] readPartial(RandomAccessFile raf, long start, long cursorSize) throws IOException {
-        byte[] byteCursor = new byte[(int) cursorSize];
-        raf.seek(start);
-        raf.read(byteCursor);
-        return byteCursor;
-    }
+
 
     public static String hash256Partial(File largeOne) throws IOException {
         RandomAccessFile raf = new RandomAccessFile(largeOne, "rw");
